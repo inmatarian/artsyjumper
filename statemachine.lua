@@ -20,15 +20,15 @@ function StateMachine:downsend( obj, index, message, ... )
 end
 
 function StateMachine:push( state )
-  self:send(E.suspend)
+  self:send("suspend")
   table.insert( self.stack, state )
-  self:send(E.enter)
+  self:send("enter")
 end
 
 function StateMachine:pop()
-  self:send(E.exit)
+  self:send("exit")
   table.remove( self.stack )
-  self:send(E.resume)
+  self:send("resume")
 end
 
 function StateMachine:enqueue( state )

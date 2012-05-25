@@ -97,8 +97,13 @@ end
 function Graphics:write(x, y, colr, str, ...)
   str = str:format(...)
   love.graphics.setColor(colr)
+  if y == "center" then
+    local lines = 0
+    for _ in str:gmatch("[^\r\n]+") do lines = lines + 1 end
+    y = floor((self.gameHeight-(self.fontHeight+2)*lines)/2)
+  end
   for line in str:gmatch("[^\r\n]+") do
-    local lx = (x == "center") and (80-(line:len()*4)) or x
+    local lx = (x == "center") and floor((self.gameWidth/2)-(line:len()*4)) or x
     love.graphics.print(line, lx, y)
     y = y + self.fontHeight + 2
   end

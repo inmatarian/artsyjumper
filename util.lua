@@ -114,3 +114,10 @@ do
   end
 end
 
+function Util.rectOverlaps( ax1, ay1, aw, ah, bx1, by1, bw, bh )
+  local hint = 0.001
+  local ax2, ay2 = ax1+aw-hint, ay1+ah-hint
+  local bx2, by2 = bx1+bw-hint, by1+bh-hint
+  return not ((ax1 > bx2) or (bx1 > ax2) or (ay1 > by2) or (by1 > ay2))
+end
+
