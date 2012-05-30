@@ -1,5 +1,6 @@
 
-floor = math.floor
+floor, abs = math.floor, math.abs
+sign = function(x) return (x<0) and -1 or 1 end
 NULLFUNC = function() return end
 
 ----------------------------------------
@@ -19,7 +20,7 @@ debugMode = {
   dt = 1,
   fps = 0,
   garbage = 0,
-  x = 0, y = 0,
+  x = 0, y = 0, j = 0, f = "--", coll = 0,
   toggle = function(self)
     self.enabled = not self.enabled
     print("debugMode", self.enabled)
@@ -32,18 +33,44 @@ debugMode = {
         self.garbage = collectgarbage("count")
         self.dt = self.dt + 1
       end
-      Graphics:write( 4, 4, Color.BLUE, "fps:%i mem:%ik\nx:%i y:%i",
-        self.fps, self.garbage, self.x, self.y )
+      Graphics:write( 4, 4, Color.BLUE, "fps:%i mem:%ik\nx:%.01f y:%.01f f:%s\nc:%i",
+        self.fps, self.garbage, self.x, self.y, tostring(self.f), self.coll )
     end
   end
 }
 
 ----------------------------------------
 
+TextBlock = Object:clone()
+
+function TextBlock:init( x, y, color, str, ... )
+  self.block = {}
+  str = str:format(...)
+  if y == "center" then
+    local lines = 0
+    for _ in str:gmatch("[^\r\n]+") do lines = lines + 1 end
+    y = floor((Graphics.gameHeight-(Graphics.fontHeight+2)*lines)/2)
+  end
+  for line in str:gmatch("[^\r\n]+") do
+    local lx = (x == "center") and floor((Graphics.gameWidth/2)-(line:len()*4)) or x
+    table.insert( self.block, { x=lx, y=y, c=color, t=line } )
+    y = y + Graphics.fontHeight + 2
+  end
+end
+
+function TextBlock:draw(dt)
+  for i = 1, #self.block do
+    local line = self.block[i]
+    Graphics:write( line.x, line.y, line.c, line.t )
+  end
+end
+
+----------------------------------------
+
 Sprite = Object:clone {
   x = 0, y = 0,
-  width = 1, height = 1,
-  touchX=0, touchY=0, touchW=1, touchH=1
+  width = 4, height = 4,
+  touchX=0, touchY=0, touchW=4, touchH=4
 }
 
 function Sprite:init( x, y, parent )
@@ -62,8 +89,8 @@ end
 ----------------------------------------
 
 Mobile = Sprite:clone {
-  jump = 0, jumpHeight = 128, onFloor = false,
-  gravity = 512, speed = 96
+  jump = 0, jumpHeight = 152,
+  gravity = 640, speed = 96, terminalVelocity = 256
 }
 
 function Mobile:init( x, y, parent )
@@ -76,49 +103,51 @@ function Mobile:center()
   return self.x + floor(self.width / 2), self.y + floor(self.height / 2)
 end
 
-function Mobile:update(dt)
-  self.dy = self.dy + self.gravity*dt
-  local newY = self.y + self.dy*dt
+function Mobile:applyPhysics(dt)
+  local newX, newY = self.x, self.y
+  self.jump = self.jump + dt
 
-  local newX = self.x + self.dx
-  self.dx = self.dx * 0.33
-
-  local dx = (newX >= self.x) and 1 or -1
-  local dy = (newY >= self.y) and 1 or -1
-
-  local lx, rx = self.x, self.x+self.width-1
-  local lastY = self.y
-
-  for ty = floor(self.y), floor(newY), dy do
-    if self.parent:mapCollisionAt( self.x, ty, self.width, self.height ) then
-      newY = lastY
-      self.dy = 0
-      break
-    else
-      lastY = ty
+  newX = newX + self.dx
+  if floor(newX) ~= floor(self.x) then
+    local dir = sign(newX-self.x)
+    for tx = floor(self.x+dir), floor(newX), dir do
+      if self.parent:mapCollisionAt( tx, newY, self.width, self.height ) then
+        newX = tx - dir
+        self.dx = 0
+        break
+      end
     end
   end
-  if not self.onFloor then self.jump = self.jump + dt end
 
-  local lastX = self.x
-  for tx = floor(self.x), floor(newX), dx do
-    if self.parent:mapCollisionAt( tx, newY, self.width, self.height ) then
-      newX = lastX
-      self.dx = 0
-      break
-    else
-      lastX = tx
+  newY = newY + self.dy*dt
+  if floor(newY) ~= floor(self.y) then
+    local dir = sign(newY-self.y)
+    for ty = floor(self.y+dir), floor(newY), dir do
+      if self.parent:mapCollisionAt( newX, ty, self.width, self.height ) then
+        newY = ty - dir
+        if dir == 1 then
+          self.dy = 0
+          self.jump = 0
+          self.onFloor = true
+        else
+          self.dy = self.dy * 0.75 * dt/60
+        end
+        break
+      end
     end
   end
 
   self.x, self.y = newX, newY
+  if self.dy > self.terminalVelocity then self.dy = self.terminalVelocity end
+  if self.jump > 0.1 then self.onFloor = false end
 
-  if self.parent:mapCollisionAt( self.x, self.y, self.width, self.height+1) then
-    self.onFloor = true
-    self.jump = 0
-  else
-    self.onFloor = false
-  end
+  self.dx = self.dx * ((self.onFloor) and 0.25 or 0.5) * dt/60
+  self.dy = self.dy + self.gravity*dt
+end
+
+
+function Mobile:update(dt)
+  self:applyPhysics(dt)
 end
 
 function Mobile:draw(dt)
@@ -126,6 +155,54 @@ function Mobile:draw(dt)
     local ox, oy = self.parent:visibilityOffset()
     Graphics:setColor( Color.RED )
     love.graphics.rectangle( "fill", floor(self.x-ox), floor(self.y-oy), self.width, self.height )
+  end
+end
+
+function Mobile:doJump()
+  if self.onFloor then
+    self.dy = -self.jumpHeight
+    self.onFloor = false
+  end
+end
+
+----------------------------------------
+
+Enemy = Mobile:clone {
+  walk = 0
+}
+
+function Enemy:init(...)
+  self.thread = coroutine.wrap( self.run )
+  Enemy:superinit(self, ...)
+end
+
+function Enemy:update(dt)
+  self.thread(self, dt)
+  if self.walk ~= 0 then
+    self.dx = self.walk * dt
+  end
+  Enemy:super().update(self, dt)
+end
+
+function Enemy:wait( seconds )
+  repeat
+    local _, dt = coroutine.yield(true)
+    seconds = seconds - dt
+  until seconds <= 0
+end
+
+function Enemy:doWalk( dir, seconds )
+  if dir == "W" then self.walk = -self.speed
+  elseif dir == "E" then self.walk = self.speed end
+  self:wait( seconds )
+  self.walk = 0
+end
+
+function Enemy:run()
+  while true do
+    self:wait(2.5)
+    self:doJump()
+    self:doWalk( Util.randomPick( "I", "W", "E" ), 0.5 )
   end
 end
 
@@ -137,11 +214,8 @@ Player = Mobile:clone {
 }
 
 function Player:update(dt)
-  if Input.tap.up and self.onFloor then
-    self.dy = -self.jumpHeight
-  elseif Input.hold.up and (self.dy < 0) and (self.jump < 0.1) then
-    self.dy = self.dy - (self.jumpHeight*dt)
-  end
+  if Input.hold.up then self:doJump() end
+  if self.dy < 0 and not Input.hold.up then self.dy = self.dy * 0.25 end
 
   if Input.hold.left and not Input.hold.right then
     self.dx = -self.speed*dt
@@ -151,6 +225,7 @@ function Player:update(dt)
   Player:super().update(self, dt)
 
   debugMode.x, debugMode.y = self.x, self.y
+  debugMode.f = self.onFloor
 end
 
 ----------------------------------------
@@ -179,20 +254,27 @@ PlayState = State:clone {
 
 function PlayState:init( mapNum )
   self.mapNum = mapNum
-  self:parseMap( LevelMap[mapNum] )
+end
+
+function PlayState:enter()
+  self:parseMap( LevelMap[self.mapNum] )
 end
 
 function PlayState:parseMap( map )
   self.map = {}
-  self.monies = { x={}, y={} }
+  self.collections = {}
+  self.enemies = {}
+
   local x, y = 1, 1
   for ch in map:gmatch(".") do
     if ch == '@' then
-      self.playerStartX, self.playerStartY = x, y
+      self.player = Player((x-1)*8, (y-1)*8, self)
       ch = ' '
     elseif ch == '$' then
-      table.insert(self.monies.x, x)
-      table.insert(self.monies.y, y)
+      table.insert(self.collections, Collectable((x-1)*8, (y-1)*8, self))
+      ch = ' '
+    elseif ch == 'E' then
+      table.insert(self.enemies, Enemy((x-1)*8, (y-1)*8, self))
       ch = ' '
     end
     if ch == "\n" then
@@ -207,47 +289,69 @@ function PlayState:parseMap( map )
 end
 
 function PlayState:getTile( x, y )
-  local row = self.map[y]
-  if (not row) or (not row[x]) then return 0 end
-  return row[x]
+  local row = self.map[y+1]
+  if (not row) or (not row[x+1]) then return 0 end
+  return row[x+1]
+end
+
+function PlayState:blockedAt( x, y )
+  return (self:getTile( x, y ) ~= 0)
 end
 
 function PlayState:mapCollisionAt( x, y, w, h )
-  local y1, y2 = floor(y/8)+1, floor((y+h-1)/8)+1
-  local x1, x2 = floor(x/8)+1, floor((x+w-1)/8)+1
+  local y1, y2 = floor(y/8), floor((y+h-1)/8)
+  local x1, x2 = floor(x/8), floor((x+w-1)/8)
   for ty = y1, y2 do
     for tx = x1, x2 do
-      if self:getTile(tx, ty) ~= 0 then return true end
+      self.collisionCount = (self.collisionCount or 0) + 1
+      if self:blockedAt(tx, ty) then return true end
     end
   end
   return false
 end
 
-function PlayState:enter()
-  self.player = Player((self.playerStartX-1)*8, (self.playerStartY-1)*8, self)
-  self.collections = {}
-  for i, x in ipairs(self.monies.x) do
-    table.insert(self.collections,
-        Collectable( (x-1)*8, (self.monies.y[i]-1)*8, self ))
-  end
-end
-
 function PlayState:update(dt)
   if Input.tap.r then
-    StateMachine:pop()
-    StateMachine:push( PlayState(self.mapNum) )
-  else
-    self:runFrame(dt)
+    self:restartLevel()
+    return
+  elseif Input.tap.n then
+    self.timerToStop = 0.1
   end
+
+  self:runFrame(dt)
 end
 
 function PlayState:runFrame(dt)
+  for _, enemy in ipairs(self.enemies) do
+    enemy:update(dt)
+  end
   self.player:update(dt)
 
   local x, y = self.player:center()
   self.offsetX = floor( x / Graphics.gameWidth ) * Graphics.gameWidth
   self.offsetY = floor( y / Graphics.gameHeight ) * Graphics.gameHeight
 
+  self:runStopTimer(dt)
+
+  for _, enemy in ipairs(self.enemies) do
+    if enemy:touches(self.player) then
+      self:restartLevel(dt)
+    end
+  end
+  self.collisionCountDt = (self.collisionCountDt or 0) + dt
+  if self.collisionCountDt > 1 then
+    debugMode.coll = self.collisionCount
+    self.collisionCountDt = self.collisionCountDt - 1
+    self.collisionCount = 0
+  end
+end
+
+function PlayState:restartLevel()
+  StateMachine:pop()
+  StateMachine:push( PlayState(self.mapNum) )
+end
+
+function PlayState:runStopTimer(dt)
   if not self.timerToStop then
     local i, N = 1, #self.collections
     while i <= N do
@@ -272,20 +376,24 @@ end
 
 function PlayState:draw(dt)
   Graphics:setColor( Color.WHITE )
+  Graphics:drawBackdrop()
   local ox, oy = self:visibilityOffset()
   ox, oy = floor(ox/8), floor(oy/8)
-  for y = 1, 15 do
-    for x = 1, 20 do
+  for y = 0, 14 do
+    for x = 0, 19 do
       local t = self:getTile(x+ox, y+oy)
       if t==1 then
-        love.graphics.rectangle("fill", (x-1)*8, (y-1)*8, 7, 7)
+        Graphics:drawTile(x*8, y*8, 1, Color.WHITE)
       end
     end
   end
-  self.player:draw(dt)
   for _, coin in ipairs(self.collections) do
     coin:draw(dt)
   end
+  for _, enemy in ipairs(self.enemies) do
+    enemy:draw(dt)
+  end
+  self.player:draw(dt)
 end
 
 function PlayState:isVisible( sprite )
@@ -301,7 +409,7 @@ end
 TextState = State:clone()
 
 function TextState:init( text, nextState )
-  self.text = text
+  self.text = TextBlock( "center", "center", Color.WHITE, text )
   self.nextState = nextState
 end
 
@@ -313,7 +421,7 @@ function TextState:update(dt)
 end
 
 function TextState:draw(dt)
-  Graphics:write( "center", "center", Color.WHITE, self.text )
+  self.text:draw(dt)
 end
 
 ----------------------------------------
@@ -342,6 +450,7 @@ function love.load()
 end
 
 function love.update(dt)
+  if dt > 0.1 then dt = 0.1 end
   Graphics.deltaTime = dt
 
   if Input.tap.f10 then

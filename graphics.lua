@@ -6,7 +6,15 @@ Graphics = {
   yScale = 1,
   maxScale = 6,
   fontset = [==[ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuv
-wxyz{|}~]==]
+wxyz{|}~]==],
+
+
+  quadBounds = {
+    playerStand = { 16, 240, 8, 16 };
+
+
+
+  }
 }
 
 function Graphics:init()
@@ -14,8 +22,13 @@ function Graphics:init()
   self.yScale = math.max(1,floor(love.graphics.getHeight()/self.gameHeight))
   love.graphics.setColorMode("modulate")
   love.graphics.setBlendMode("alpha")
-  -- self:loadTileset("tileset.png")
+  self:loadTileset("tileset.png")
   self:loadFont("cgafont.png")
+
+  self.backDrops = {
+    default = self.loadBackDrop("backdrop.png")
+  }
+
   return self
 end
 
@@ -53,7 +66,29 @@ function Graphics.loadImageQuads(name, width, height, firstid)
 end
 
 function Graphics:loadTileset(name)
-  self.tileset, self.tilequads = self.loadImageQuads(name, 16, 16, 1)
+  local quads = {}
+  local image = love.graphics.newImage(name)
+  image:setFilter("nearest", "nearest")
+  local sw, sh = image:getWidth(), image:getHeight()
+  local x, y = 8, 0
+  for i = 1, 32 do
+    quads[i] = love.graphics.newQuad(x, y, 8, 8, sw, sh)
+    x = x + 8
+    if x >= sw then
+      y = y + 8
+      x = 0
+    end
+  end
+
+  -- load named quads
+
+  self.tileset, self.tilequads = image, quads
+end
+
+function Graphics.loadBackDrop(name)
+  local image = love.graphics.newImage(name)
+  image:setFilter("nearest", "nearest")
+  return image
 end
 
 function Graphics:loadFont(name)
@@ -70,6 +105,13 @@ function Graphics:setClipping( x, y, w, h )
   x, y = floor(x*xs), floor(y*ys)
   w, h = floor(w*xs), floor(h*ys)
   love.graphics.setScissor( x, y, w, h )
+  return self
+end
+
+function Graphics:drawBackdrop( name )
+  local backdrop = self.backDrops[name] or self.backDrops.default
+  love.graphics.draw( backdrop, 0, 0 )
+  return self
 end
 
 function Graphics:drawTile(x, y, t, c)
@@ -96,7 +138,7 @@ end
 
 function Graphics:write(x, y, colr, str, ...)
   str = str:format(...)
-  love.graphics.setColor(colr)
+  self:setColor(colr)
   if y == "center" then
     local lines = 0
     for _ in str:gmatch("[^\r\n]+") do lines = lines + 1 end

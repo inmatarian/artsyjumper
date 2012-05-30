@@ -121,3 +121,7 @@ function Util.rectOverlaps( ax1, ay1, aw, ah, bx1, by1, bw, bh )
   return not ((ax1 > bx2) or (bx1 > ax2) or (ay1 > by2) or (by1 > ay2))
 end
 
+function Util.randomPick(...)
+  return select(math.random(1, select('#', ...)), ...)
+end
+
