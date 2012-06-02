@@ -10,6 +10,12 @@ GAME
 PRESS ENTER TO PLAY
 ]=],
 
+  gameOverScreen = [=[
+LET'S END IT HERE.
+
+GAME OVER
+]=],
+
   levels = {
 
     [1] = [=[
@@ -33,8 +39,14 @@ TEXT HERE
 SHOULD I BE
 ANGRY OR
 EXISTENTIAL?
-]=]
-
+]=],
+    [4] = [=[
+CAN I MAKE A
+COOL MILLION
+ON KICKSTARTER?
+I HAVE LAME
+IDEAS ALSO!
+]=],
   };
 }
 

@@ -111,7 +111,8 @@ function Mobile:applyPhysics(dt)
   if floor(newX) ~= floor(self.x) then
     local dir = sign(newX-self.x)
     for tx = floor(self.x+dir), floor(newX), dir do
-      if self.parent:mapCollisionAt( tx, newY, self.width, self.height ) then
+      if self.parent:mapCollisionAt( tx+self.touchX, newY+self.touchY,
+            self.touchW, self.touchH ) then
         newX = tx - dir
         self.dx = 0
         break
@@ -123,7 +124,8 @@ function Mobile:applyPhysics(dt)
   if floor(newY) ~= floor(self.y) then
     local dir = sign(newY-self.y)
     for ty = floor(self.y+dir), floor(newY), dir do
-      if self.parent:mapCollisionAt( newX, ty, self.width, self.height ) then
+      if self.parent:mapCollisionAt( newX+self.touchX, ty+self.touchY,
+            self.touchW, self.touchH ) then
         newY = ty - dir
         if dir == 1 then
           self.dy = 0
@@ -210,7 +212,7 @@ end
 
 Player = Mobile:clone {
   width = 6, height = 12,
-  touchX = 0, touchY = 0, touchW = 6, touchH = 12
+  touchX = 0, touchY = 6, touchW = 6, touchH = 6
 }
 
 function Player:update(dt)
@@ -432,7 +434,7 @@ function newNextLevel( index )
   if index < #GameTexts.levels then
     followingState = PlayState(index)
   else
-    followingState = newTitleState()
+    followingState = TextState( GameTexts.gameOverScreen, newTitleState() )
   end
   return TextState( GameTexts.levels[index], followingState )
 end
