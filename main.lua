@@ -67,6 +67,29 @@ end
 
 ----------------------------------------
 
+MeterDisplay = Object:clone()
+
+function MeterDisplay:init( x, y, color )
+  self.x, self.y = x, y
+  self.color = color or Color.WHITE
+  self.text = ""
+  self.clock = 0
+end
+
+function MeterDisplay:refresh( text )
+  self.text = text
+  self.clock = 3
+end
+
+function MeterDisplay:draw(dt)
+  if self.clock > 0 then
+    self.clock = self.clock - dt
+    Graphics:write( self.x, self.y, self.color, self.text )
+  end
+end
+
+----------------------------------------
+
 Sprite = Object:clone {
   x = 0, y = 0,
   width = 4, height = 4,
@@ -256,10 +279,12 @@ PlayState = State:clone {
 
 function PlayState:init( mapNum )
   self.mapNum = mapNum
+  self.deathDisplay = MeterDisplay( 4, 4, Color.RED )
 end
 
 function PlayState:enter()
   self:parseMap( LevelMap[self.mapNum] )
+  if self.mapNum == 1 then Game.deaths = 0 end
 end
 
 function PlayState:parseMap( map )
@@ -270,7 +295,8 @@ function PlayState:parseMap( map )
   local x, y = 1, 1
   for ch in map:gmatch(".") do
     if ch == '@' then
-      self.player = Player((x-1)*8, (y-1)*8, self)
+      self.playerX, self.playerY = (x-1)*8, (y-1)*8
+      self.player = Player(self.playerX, self.playerY, self)
       ch = ' '
     elseif ch == '$' then
       table.insert(self.collections, Collectable((x-1)*8, (y-1)*8, self))
@@ -349,8 +375,10 @@ function PlayState:runFrame(dt)
 end
 
 function PlayState:restartLevel()
-  StateMachine:pop()
-  StateMachine:push( PlayState(self.mapNum) )
+  Game.deaths = Game.deaths + 1
+  self.deathDisplay:refresh( string.format("%i", Game.deaths) )
+  self.player.x = self.playerX
+  self.player.y = self.playerY
 end
 
 function PlayState:runStopTimer(dt)
@@ -371,7 +399,7 @@ function PlayState:runStopTimer(dt)
     self.timerToStop = self.timerToStop - dt
     if self.timerToStop < 0 then
       StateMachine:pop()
-      StateMachine:push( newNextLevel( self.mapNum ) )
+      StateMachine:push( Game.newNextLevel( self.mapNum ) )
     end
   end
 end
@@ -396,6 +424,7 @@ function PlayState:draw(dt)
     enemy:draw(dt)
   end
   self.player:draw(dt)
+  self.deathDisplay:draw(dt)
 end
 
 function PlayState:isVisible( sprite )
@@ -428,19 +457,29 @@ end
 
 ----------------------------------------
 
-function newNextLevel( index )
+Game = {
+  deaths = 0
+}
+
+function Game.newNextLevel( index )
   local followingState
   index = index + 1
   if index < #GameTexts.levels then
     followingState = PlayState(index)
   else
-    followingState = TextState( GameTexts.gameOverScreen, newTitleState() )
+    followingState = Game.newGameOverState()
   end
   return TextState( GameTexts.levels[index], followingState )
 end
 
-function newTitleState()
-  return TextState( GameTexts.titleScreen, newNextLevel(0) )
+function Game.newTitleState()
+  return TextState( GameTexts.titleScreen, Game.newNextLevel(0) )
+end
+
+function Game.newGameOverState()
+  local s = string.format( "%s\n \n \nDIED %i TIMES",
+      GameTexts.gameOverScreen, Game.deaths )
+  return TextState(s, Game.newTitleState())
 end
 
 ----------------------------------------
@@ -448,7 +487,7 @@ end
 function love.load()
   Graphics:init()
   Input:init()
-  StateMachine:push( newTitleState() )
+  StateMachine:push( Game.newTitleState() )
 end
 
 function love.update(dt)
