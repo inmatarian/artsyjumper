@@ -93,7 +93,9 @@ end
 Sprite = Object:clone {
   x = 0, y = 0,
   width = 4, height = 4,
-  touchX=0, touchY=0, touchW=4, touchH=4
+  anim = { frame = { 0 }, time = { 0 } },
+  animClock = 0, animCurrent = 1,
+  frame = 0, flipped = false, upsideDown = false,
 }
 
 function Sprite:init( x, y, parent )
@@ -103,10 +105,37 @@ function Sprite:init( x, y, parent )
 end
 
 function Sprite:touches( other )
-  return Util.rectOverlaps( self.x+self.touchX, self.y+self.touchY,
-      self.touchW, self.touchH,
-      other.x+other.touchX, other.y+other.touchY,
-      other.touchW, other.touchH )
+  return Util.rectOverlaps( self.x, self.y, self.width, self.height,
+      other.x, other.y, other.width, other.height )
+end
+
+function Sprite:updateAnimations(dt)
+  self.animClock = self.animClock - dt
+  if self.animClock <= 0 then
+    self.animCurrent = (self.animCurrent % #self.anim.frame) + 1
+    self.frame = self.anim.frame[self.animCurrent]
+    self.animClock = self.animClock + self.anim.time[self.animCurrent]
+  end
+end
+
+function Sprite:draw(dt)
+  self:updateAnimations(dt)
+  if self.parent:isVisible(self) then
+    local ox, oy = self.parent:visibilityOffset()
+    local x, y = floor(self.x-ox), floor(self.y-oy)
+    Graphics:drawTile( x, y, self.frame, Color.PUREWHITE, self.flipped, self.upsideDown )
+    if debugMode.enabled then
+      love.graphics.rectangle("line", x, y, self.width, self.height)
+    end
+  end
+end
+
+function Sprite:setAnim( anm )
+  if anm ~= self.anim then
+    self.anim = anm
+    self.animCurrent = 1
+    self.animClock = 0
+  end
 end
 
 ----------------------------------------
@@ -119,6 +148,7 @@ Mobile = Sprite:clone {
 function Mobile:init( x, y, parent )
   self.dx = 0
   self.dy = 0
+  if self.stillAnim then self.anim = self.stillAnim end
   Mobile:superinit(self, x, y, parent)
 end
 
@@ -134,8 +164,7 @@ function Mobile:applyPhysics(dt)
   if floor(newX) ~= floor(self.x) then
     local dir = sign(newX-self.x)
     for tx = floor(self.x+dir), floor(newX), dir do
-      if self.parent:mapCollisionAt( tx+self.touchX, newY+self.touchY,
-            self.touchW, self.touchH ) then
+      if self.parent:mapCollisionAt( tx, newY, self.width, self.height ) then
         newX = tx - dir
         self.dx = 0
         break
@@ -147,10 +176,9 @@ function Mobile:applyPhysics(dt)
   if floor(newY) ~= floor(self.y) then
     local dir = sign(newY-self.y)
     for ty = floor(self.y+dir), floor(newY), dir do
-      if self.parent:mapCollisionAt( newX+self.touchX, ty+self.touchY,
-            self.touchW, self.touchH ) then
+      if self.parent:mapCollisionAt( newX, ty, self.width, self.height ) then
         newY = ty - dir
-        if dir == 1 then
+        if dir == sign(self.gravity) then
           self.dy = 0
           self.jump = 0
           self.onFloor = true
@@ -163,7 +191,10 @@ function Mobile:applyPhysics(dt)
   end
 
   self.x, self.y = newX, newY
-  if self.dy > self.terminalVelocity then self.dy = self.terminalVelocity end
+
+  if self.dy > self.terminalVelocity then self.dy = self.terminalVelocity
+  elseif self.dy < -self.terminalVelocity then self.dy = -self.terminalVelocity end
+
   if self.jump > 0.1 then self.onFloor = false end
 
   self.dx = self.dx * ((self.onFloor) and 0.25 or 0.5) * dt/60
@@ -175,19 +206,17 @@ function Mobile:update(dt)
   self:applyPhysics(dt)
 end
 
-function Mobile:draw(dt)
-  if self.parent:isVisible(self) then
-    local ox, oy = self.parent:visibilityOffset()
-    Graphics:setColor( Color.RED )
-    love.graphics.rectangle( "fill", floor(self.x-ox), floor(self.y-oy), self.width, self.height )
-  end
-end
-
 function Mobile:doJump()
   if self.onFloor then
     self.dy = -self.jumpHeight
     self.onFloor = false
   end
+end
+
+function Mobile:flipGravity()
+  self.upsideDown = not self.upsideDown
+  self.gravity = -1 * self.gravity
+  self.jumpHeight = -1 * self.jumpHeight
 end
 
 ----------------------------------------
@@ -198,6 +227,7 @@ Enemy = Mobile:clone {
 
 function Enemy:init(...)
   self.thread = coroutine.wrap( self.run )
+  self.anim = self.stillAnim or self.anim
   Enemy:superinit(self, ...)
 end
 
@@ -217,10 +247,19 @@ function Enemy:wait( seconds )
 end
 
 function Enemy:doWalk( dir, seconds )
-  if dir == "W" then self.walk = -self.speed
-  elseif dir == "E" then self.walk = self.speed end
+  if dir ~= "I" then
+    self:setAnim( self.movingAnim )
+    if dir == "W" then
+      self.walk = -self.speed
+      self.flipped = true
+    elseif dir == "E" then
+      self.walk = self.speed
+      self.flipped = false
+    end
+  end
   self:wait( seconds )
   self.walk = 0
+  self:setAnim( self.stillAnim )
 end
 
 function Enemy:run()
@@ -233,20 +272,60 @@ end
 
 ----------------------------------------
 
+BobEnemy = Enemy:clone {
+  stillAnim = { frame = { "bobOne" }, time = { 0 } },
+  movingAnim = { frame = { "bobOne", "bobTwo" }, time = { 0.1, 0.1 } },
+}
+
+----------------------------------------
+
+VVVVVVEnemy = Enemy:clone {
+  width = 8, height = 13,
+  speed = math.floor(Enemy.speed / 2),
+  stillAnim = { frame = { "vvvvvvOne" }, time = { 0 } },
+  movingAnim = { frame = { "vvvvvvOne", "vvvvvvTwo" }, time = { 0.1, 0.1 } },
+}
+
+function VVVVVVEnemy:run()
+  while true do
+    self:wait(1)
+    if math.random(1, 4)==1 then
+      self:flipGravity()
+    else
+      self:doWalk( Util.randomPick("W", "E"), 0.5 )
+    end
+  end
+end
+
+----------------------------------------
+
 Player = Mobile:clone {
   width = 6, height = 12,
-  touchX = 0, touchY = 6, touchW = 6, touchH = 6
+  stillAnim = { frame = { "playerOne" }, time = { 0 } },
+  movingAnim = { frame = { "playerOne", "playerTwo" }, time = { 0.1, 0.1 } },
+  holdingMove = false
 }
 
 function Player:update(dt)
   if Input.hold.jump then self:doJump() end
   if self.dy < 0 and not Input.hold.jump then self.dy = self.dy * 0.25 end
 
+  if Input.tap.left or Input.tap.right then
+    self.holdingMove = true
+    self:setAnim( self.movingAnim )
+  elseif self.holdingMove and not (Input.hold.left or Input.hold.right) then
+    self.holdingMove = false
+    self:setAnim( self.stillAnim )
+  end
+
   if Input.hold.left and not Input.hold.right then
     self.dx = -self.speed*dt
   elseif Input.hold.right and not Input.hold.left then
     self.dx = self.speed*dt
   end
+
+  self.flipped = (self.dx < 0)
+
   Player:super().update(self, dt)
 
   debugMode.x, debugMode.y = self.x, self.y
@@ -257,18 +336,18 @@ end
 
 Collectable = Sprite:clone {
   width = 8, height = 8,
-  touchX = 2, touchY = 2, touchW = 4, touchH = 4
+  anim = { frame = {"coinOne", "coinTwo", "coinThree", "coinFour"},
+           time = {0.1, 0.1, 0.1, 0.1} }
 }
 
-function Collectable:draw(dt)
-  if self.parent:isVisible(self) then
-    local ox, oy = self.parent:visibilityOffset()
-    Graphics:setColor( Color.YELLOW )
-    love.graphics.rectangle( "fill",
-        floor(self.x-ox+self.touchX),
-        floor(self.y-oy+self.touchY),
-        self.touchW, self.touchY )
-  end
+function Collectable:init( x, y, parent )
+  self.anim = self.anim
+  Collectable:superinit( self, x, y, parent )
+end
+
+function Collectable:collect()
+  Game.coins = Game.coins + 1
+  self.parent.coinDisplay:refresh(string.format("%i", Game.coins))
 end
 
 ----------------------------------------
@@ -280,31 +359,38 @@ PlayState = State:clone {
 function PlayState:init( mapNum )
   self.mapNum = mapNum
   self.deathDisplay = MeterDisplay( 4, 4, Color.RED )
+  self.coinDisplay = MeterDisplay( 4, 12, Color.GREEN )
 end
 
 function PlayState:enter()
   self:parseMap( LevelMap[self.mapNum] )
-  if self.mapNum == 1 then Game.deaths = 0 end
+  if self.mapNum == 1 then Game.deaths, Game.coins = 0, 0 end
+end
+
+function PlayState:placeObject( ch, x, y )
+  if (ch == '#') or (ch == ' ') or (ch == '\n') then return ch end
+  if ch == '@' then
+    self.playerX, self.playerY = x, y
+    self.player = Player(self.playerX, self.playerY, self)
+  elseif ch == '$' then
+    table.insert(self.collections, Collectable(x, y, self))
+  elseif ch == 'E' then
+    table.insert(self.enemies, BobEnemy(x, y, self))
+  elseif ch == 'V' then
+    table.insert(self.enemies, VVVVVVEnemy(x, y, self))
+  end
+  return ' '
 end
 
 function PlayState:parseMap( map )
   self.map = {}
+  self.player = nil
   self.collections = {}
   self.enemies = {}
 
   local x, y = 1, 1
   for ch in map:gmatch(".") do
-    if ch == '@' then
-      self.playerX, self.playerY = (x-1)*8, (y-1)*8
-      self.player = Player(self.playerX, self.playerY, self)
-      ch = ' '
-    elseif ch == '$' then
-      table.insert(self.collections, Collectable((x-1)*8, (y-1)*8, self))
-      ch = ' '
-    elseif ch == 'E' then
-      table.insert(self.enemies, Enemy((x-1)*8, (y-1)*8, self))
-      ch = ' '
-    end
+    ch = self:placeObject( ch, (x-1)*8, (y-1)*8 )
     if ch == "\n" then
       if x > 1 then x, y = 1, y + 1 end
     else
@@ -383,9 +469,10 @@ end
 
 function PlayState:runStopTimer(dt)
   if not self.timerToStop then
-    local i, N = 1, #self.collections
+    local i, N, show = 1, #self.collections
     while i <= N do
       if self.player:touches( self.collections[i] ) then
+        self.collections[i]:collect()
         table.remove(self.collections, i)
         N = N - 1
       else
@@ -405,7 +492,7 @@ function PlayState:runStopTimer(dt)
 end
 
 function PlayState:draw(dt)
-  Graphics:setColor( Color.WHITE )
+  Graphics:setColor( Color.PUREWHITE )
   Graphics:drawBackdrop()
   local ox, oy = self:visibilityOffset()
   ox, oy = floor(ox/8), floor(oy/8)
@@ -413,7 +500,7 @@ function PlayState:draw(dt)
     for x = 0, 19 do
       local t = self:getTile(x+ox, y+oy)
       if t==1 then
-        Graphics:drawTile(x*8, y*8, 1, Color.WHITE)
+        Graphics:drawTile(x*8, y*8, 1, Color.PUREWHITE)
       end
     end
   end
@@ -425,6 +512,7 @@ function PlayState:draw(dt)
   end
   self.player:draw(dt)
   self.deathDisplay:draw(dt)
+  self.coinDisplay:draw(dt)
 end
 
 function PlayState:isVisible( sprite )
@@ -477,15 +565,34 @@ function Game.newTitleState()
 end
 
 function Game.newGameOverState()
-  local s = string.format( "%s\n \n \nDIED %i TIMES",
-      GameTexts.gameOverScreen, Game.deaths )
+  local d = Game.deaths
+  local s = string.format( "%s\n \n \nDIED %i %s",
+      GameTexts.gameOverScreen, d, d==1 and "TIME" or "TIMES" )
   return TextState(s, Game.newTitleState())
 end
+
+Game.artwork = {
+  name = "tileset.png",
+  tiles = {
+    [1] = { 8, 0, 8, 8 };
+    playerOne = { 0, 244, 7, 12 };
+    playerTwo = { 8, 244, 7, 12 };
+    bobOne = { 222, 247, 5, 4 };
+    bobTwo = { 222, 252, 5, 4 };
+    vvvvvvOne = { 228, 243, 8, 13 };
+    vvvvvvTwo = { 237, 243, 8, 13 };
+    dragon = { 246, 236, 10, 20 };
+    coinOne = { 0, 8, 8, 8 };
+    coinTwo = { 8, 8, 8, 8 };
+    coinThree = { 16, 8, 8, 8 };
+    coinFour = { 24, 8, 8, 8 };
+  }
+}
 
 ----------------------------------------
 
 function love.load()
-  Graphics:init()
+  Graphics:init( Game.artwork )
   Input:init()
   StateMachine:push( Game.newTitleState() )
 end

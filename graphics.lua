@@ -7,23 +7,17 @@ Graphics = {
   maxScale = 6,
   fontset = [==[ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuv
 wxyz{|}~]==],
-
-
-  quadBounds = {
-    playerStand = { 16, 240, 8, 16 };
-
-
-
-  }
 }
 
-function Graphics:init()
+function Graphics:init( artwork )
   self.xScale = math.max(1,floor(love.graphics.getWidth()/self.gameWidth))
   self.yScale = math.max(1,floor(love.graphics.getHeight()/self.gameHeight))
   love.graphics.setColorMode("modulate")
   love.graphics.setBlendMode("alpha")
-  self:loadTileset("tileset.png")
   self:loadFont("cgafont.png")
+
+  self.tileBounds = artwork.tiles
+  self:loadTileset(artwork.name, artwork.tiles)
 
   self.backDrops = {
     default = self.loadBackDrop("backdrop.png")
@@ -65,24 +59,14 @@ function Graphics.loadImageQuads(name, width, height, firstid)
   return image, quads
 end
 
-function Graphics:loadTileset(name)
-  local quads = {}
-  local image = love.graphics.newImage(name)
-  image:setFilter("nearest", "nearest")
-  local sw, sh = image:getWidth(), image:getHeight()
-  local x, y = 8, 0
-  for i = 1, 32 do
-    quads[i] = love.graphics.newQuad(x, y, 8, 8, sw, sh)
-    x = x + 8
-    if x >= sw then
-      y = y + 8
-      x = 0
-    end
+function Graphics:loadTileset(name, tiles)
+  self.image = love.graphics.newImage(name)
+  self.image:setFilter("nearest", "nearest")
+  local sw, sh = self.image:getWidth(), self.image:getHeight()
+  self.quads = {}
+  for k, v in pairs( tiles ) do
+    self.quads[k] = love.graphics.newQuad( v[1], v[2], v[3], v[4], sw, sh)
   end
-
-  -- load named quads
-
-  self.tileset, self.tilequads = image, quads
 end
 
 function Graphics.loadBackDrop(name)
@@ -114,13 +98,19 @@ function Graphics:drawBackdrop( name )
   return self
 end
 
-function Graphics:drawTile(x, y, t, c)
-  local quad = self.tilequads[t]
+Graphics.orientations = { 0, math.pi*0.5, math.pi, math.pi*1.5 }
+
+function Graphics:drawTile(x, y, t, c, flipped, upsideDown)
+  local quad = self.quads[t]
   if not quad then return end
+  local bounds = self.tileBounds[t]
   local xs, ys = self.xScale, self.yScale
   x, y = floor(x*xs)/xs, floor(y*ys)/ys
   if c then self:setColor(c) end
-  love.graphics.drawq( self.tileset, quad, x, y )
+  if flipped then x = x + bounds[3]-1 end
+  if upsideDown then y = y + bounds[4]-1 end
+
+  love.graphics.drawq( self.image, quad, x, y, 0, flipped and -1 or 1, upsideDown and -1 or 1 )
   return self
 end
 
@@ -161,8 +151,8 @@ end
 
 function Graphics:start()
   love.graphics.scale( Graphics.xScale, Graphics.yScale )
-  love.graphics.setLine( Graphics.xScale, "smooth" )
-  self:setColor( Color.WHITE )
+  love.graphics.setLine( 1, "rough" )
+  self:setColor( Color.PUREWHITE )
   return self
 end
 
@@ -218,4 +208,6 @@ Color.SILVER = Color( 170, 170, 170 )
 Color.TEAL = Color( 0, 170, 170 )
 Color.WHITE = Color( 255, 255, 255 )
 Color.YELLOW = Color( 255, 255, 0 )
+
+Color.PUREWHITE = Color( 255, 255, 255 )
 
