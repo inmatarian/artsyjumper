@@ -3,14 +3,20 @@ Input = {
   tap = {},
   hold = {},
   translator = {
-    [" "] = "space",
-    lctrl = "ctrl",
-    rctrl = "ctrl",
-    lalt = "alt",
-    ralt = "alt",
-    lshift = "shift",
-    rshift = "shift",
-    ["return"] = "enter",
+    [" "] = {"space", "jump"},
+    up = {"jump"},
+    w = {"up", "jump"},
+    a = {"left"},
+    s = {"down"},
+    d = {"right"},
+    z = {"jump"},
+    lctrl = {"ctrl"},
+    rctrl = {"ctrl"},
+    lalt = {"alt"},
+    ralt = {"alt"},
+    lshift = {"shift"},
+    rshift = {"shift"},
+    ["return"] = {"enter"},
   }
 }
 
@@ -26,16 +32,25 @@ function mt.__index(self, key)
 end
 
 function Input:init()
-  print("Input:init()")
   love.keyboard.setKeyRepeat( 0.500, 0.125 )
   return setmetatable(self, mt)
 end
 
-function Input:keypressed(key)
-  key = self.translator[key] or key
-  self.tap[key] = true
-  self.hold[key] = true
+function Input:translate(key, value)
+  self.tap[key] = value
+  self.hold[key] = value
+  local tr = self.translator[key]
+  if tr then
+    for _, v in ipairs(tr) do
+      self.tap[v] = value
+      self.hold[v] = value
+    end
+  end
   return key
+end
+
+function Input:keypressed(key)
+  return self:translate(key, true)
 end
 
 function Input:update(dt)
@@ -45,9 +60,6 @@ function Input:update(dt)
 end
 
 function Input:keyreleased(key)
-  key = self.translator[key] or key
-  self.tap[key] = nil
-  self.hold[key] = nil
-  return key
+  return self:translate(key, nil)
 end
 

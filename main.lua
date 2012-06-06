@@ -239,8 +239,8 @@ Player = Mobile:clone {
 }
 
 function Player:update(dt)
-  if Input.hold.up then self:doJump() end
-  if self.dy < 0 and not Input.hold.up then self.dy = self.dy * 0.25 end
+  if Input.hold.jump then self:doJump() end
+  if self.dy < 0 and not Input.hold.jump then self.dy = self.dy * 0.25 end
 
   if Input.hold.left and not Input.hold.right then
     self.dx = -self.speed*dt
