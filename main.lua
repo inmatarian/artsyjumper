@@ -90,6 +90,27 @@ end
 
 ----------------------------------------
 
+CallbackTimer = Object:clone()
+
+function CallbackTimer:init( time, object, callback )
+  self.time = time
+  self.object = object
+  self.callback = callback
+  self.enabled = true
+end
+
+function CallbackTimer:update(dt)
+  if self.enabled then
+    self.time = self.time - dt
+    if self.time <= 0 then
+      self.callback(self.object)
+      self.enabled = false
+    end
+  end
+end
+
+----------------------------------------
+
 Sprite = Object:clone {
   x = 0, y = 0,
   width = 4, height = 4,
@@ -134,15 +155,23 @@ function Sprite:setAnim( anm )
   if anm ~= self.anim then
     self.anim = anm
     self.animCurrent = 1
-    self.animClock = 0
+    self.animClock = self.anim.time[self.animCurrent]
   end
 end
+
+function Sprite:die()
+  self.parent:removeSprite(self)
+end
+
+function Sprite:handleTouched() end
+function Sprite:update(dt) end
 
 ----------------------------------------
 
 Mobile = Sprite:clone {
   jump = 0, jumpHeight = 152,
-  gravity = 640, speed = 96, terminalVelocity = 256
+  gravity = 640, speed = 96, terminalVelocity = 256,
+  tangible = true, hurts = true
 }
 
 function Mobile:init( x, y, parent )
@@ -160,8 +189,8 @@ function Mobile:applyPhysics(dt)
   local newX, newY = self.x, self.y
   self.jump = self.jump + dt
 
-  newX = newX + self.dx
-  if floor(newX) ~= floor(self.x) then
+  newX = newX + self.dx*dt
+  if (floor(newX) ~= floor(self.x)) and self.tangible then
     local dir = sign(newX-self.x)
     for tx = floor(self.x+dir), floor(newX), dir do
       if self.parent:mapCollisionAt( tx, newY, self.width, self.height ) then
@@ -173,7 +202,7 @@ function Mobile:applyPhysics(dt)
   end
 
   newY = newY + self.dy*dt
-  if floor(newY) ~= floor(self.y) then
+  if (floor(newY) ~= floor(self.y)) and self.tangible then
     local dir = sign(newY-self.y)
     for ty = floor(self.y+dir), floor(newY), dir do
       if self.parent:mapCollisionAt( newX, ty, self.width, self.height ) then
@@ -197,8 +226,10 @@ function Mobile:applyPhysics(dt)
 
   if self.jump > 0.1 then self.onFloor = false end
 
-  self.dx = self.dx * ((self.onFloor) and 0.25 or 0.5) * dt/60
-  self.dy = self.dy + self.gravity*dt
+  if self.tangible then
+    self.dx = self.dx * ((self.onFloor) and 0.25 or 0.5) * dt/60
+    self.dy = self.dy + self.gravity*dt
+  end
 end
 
 
@@ -234,7 +265,7 @@ end
 function Enemy:update(dt)
   self.thread(self, dt)
   if self.walk ~= 0 then
-    self.dx = self.walk * dt
+    self.dx = self.walk
   end
   Enemy:super().update(self, dt)
 end
@@ -268,6 +299,10 @@ function Enemy:run()
     self:doJump()
     self:doWalk( Util.randomPick( "I", "W", "E" ), 0.5 )
   end
+end
+
+function Enemy:handleTouched()
+  self.parent:restartLevel()
 end
 
 ----------------------------------------
@@ -319,9 +354,9 @@ function Player:update(dt)
   end
 
   if Input.hold.left and not Input.hold.right then
-    self.dx = -self.speed*dt
+    self.dx = -self.speed
   elseif Input.hold.right and not Input.hold.left then
-    self.dx = self.speed*dt
+    self.dx = self.speed
   end
 
   self.flipped = (self.dx < 0)
@@ -330,6 +365,39 @@ function Player:update(dt)
 
   debugMode.x, debugMode.y = self.x, self.y
   debugMode.f = self.onFloor
+end
+
+----------------------------------------
+
+PlayerDeath = Mobile:clone {
+  tangible = false, hurts = false, speed = 64, style = {}
+}
+
+PlayerDeath.style.boom = {
+  frame = { "deathBoomOne", "deathBoomTwo", "deathBoomThree", "deathBoomFour", 0 },
+  time = { 0.1, 0.1, 0.1, 0.1, 1000 }
+}
+
+PlayerDeath.style.flash = {
+  frame = { "deathFlashOne", "deathFlashTwo", "deathFlashThree", "deathFlashFour" },
+  time = { 0.25, 0.25, 0.25, 0.25 }
+}
+
+function PlayerDeath:init( x, y, style, option, parent )
+  self:setAnim(self.style[style])
+  self.lifeClock = 2
+  PlayerDeath:superinit(self, x, y, parent)
+
+  if option > 0 then
+    self.dx = self.speed * math.sin( option * math.pi / 4 )
+    self.dy = self.speed * math.cos( option * math.pi / 4 )
+  end
+end
+
+function PlayerDeath:update(dt)
+  PlayerDeath:super().update(self, dt)
+  self.lifeClock = self.lifeClock - dt
+  if self.lifeClock <= 0 then self:die() end
 end
 
 ----------------------------------------
@@ -345,21 +413,25 @@ function Collectable:init( x, y, parent )
   Collectable:superinit( self, x, y, parent )
 end
 
-function Collectable:collect()
+function Collectable:handleTouched()
   Game.coins = Game.coins + 1
+  self.parent.coins = self.parent.coins - 1
   self.parent.coinDisplay:refresh(string.format("%i", Game.coins))
+  self:die()
 end
 
 ----------------------------------------
 
 PlayState = State:clone {
-  offsetX = 0, offsetY = 0
+  offsetX = 0, offsetY = 0,
 }
 
 function PlayState:init( mapNum )
   self.mapNum = mapNum
   self.deathDisplay = MeterDisplay( 4, 4, Color.RED )
   self.coinDisplay = MeterDisplay( 4, 12, Color.GREEN )
+  self.timers = {}
+  self.spritesToRemove = {}
 end
 
 function PlayState:enter()
@@ -373,11 +445,12 @@ function PlayState:placeObject( ch, x, y )
     self.playerX, self.playerY = x, y
     self.player = Player(self.playerX, self.playerY, self)
   elseif ch == '$' then
-    table.insert(self.collections, Collectable(x, y, self))
+    table.insert(self.sprites, Collectable(x, y, self))
+    self.coins = self.coins + 1
   elseif ch == 'E' then
-    table.insert(self.enemies, BobEnemy(x, y, self))
+    table.insert(self.sprites, BobEnemy(x, y, self))
   elseif ch == 'V' then
-    table.insert(self.enemies, VVVVVVEnemy(x, y, self))
+    table.insert(self.sprites, VVVVVVEnemy(x, y, self))
   end
   return ' '
 end
@@ -385,8 +458,8 @@ end
 function PlayState:parseMap( map )
   self.map = {}
   self.player = nil
-  self.collections = {}
-  self.enemies = {}
+  self.sprites = {}
+  self.coins = 0
 
   local x, y = 1, 1
   for ch in map:gmatch(".") do
@@ -427,31 +500,54 @@ end
 function PlayState:update(dt)
   if Input.tap.r then
     self:restartLevel()
-    return
   elseif Input.tap.n then
-    self.timerToStop = 0.1
+    self:handleStopTimer()
+    return
   end
 
   self:runFrame(dt)
 end
 
 function PlayState:runFrame(dt)
-  for _, enemy in ipairs(self.enemies) do
-    enemy:update(dt)
+  for i = 1, #self.timers do
+    self.timers[i]:update(dt)
   end
-  self.player:update(dt)
+  for i = #self.timers, 1, -1 do
+    if not self.timers[i].enabled then table.remove(self.timers, i) end
+  end
+
+  for _, sprite in ipairs(self.sprites) do
+    sprite:update(dt)
+  end
+
+  if not self.restarting then
+    self.player:update(dt)
+  end
 
   local x, y = self.player:center()
   self.offsetX = floor( x / Graphics.gameWidth ) * Graphics.gameWidth
   self.offsetY = floor( y / Graphics.gameHeight ) * Graphics.gameHeight
 
-  self:runStopTimer(dt)
-
-  for _, enemy in ipairs(self.enemies) do
-    if enemy:touches(self.player) then
-      self:restartLevel(dt)
+  if not self.restarting then
+    for _, sprite in ipairs(self.sprites) do
+      if self.player:touches(sprite) then
+        sprite:handleTouched()
+      end
     end
   end
+
+  for i = #self.spritesToRemove, 1, -1 do
+    local spr = table.remove(self.spritesToRemove)
+    for i = #self.sprites, 1, -1 do
+      if self.sprites[i]==spr then table.remove(self.sprites, i) end
+    end
+  end
+
+  if self.coins == 0 and not self.stopping then
+    self.stopping = true
+    table.insert(self.timers, CallbackTimer( 1, self, self.handleStopTimer ) )
+  end
+
   self.collisionCountDt = (self.collisionCountDt or 0) + dt
   if self.collisionCountDt > 1 then
     debugMode.coll = self.collisionCount
@@ -461,34 +557,31 @@ function PlayState:runFrame(dt)
 end
 
 function PlayState:restartLevel()
-  Game.deaths = Game.deaths + 1
-  self.deathDisplay:refresh( string.format("%i", Game.deaths) )
+  if not self.restarting then
+    Game.deaths = Game.deaths + 1
+    self.deathDisplay:refresh( string.format("%i", Game.deaths) )
+    table.insert(self.timers, CallbackTimer( 0.5, self, self.handleRestartTimer ) )
+    self.restarting = true
+    local x, y = self.player:center()
+    if math.random(0,1)==0 then
+      table.insert(self.sprites, PlayerDeath(x-3, y-3, "boom", 0, self))
+    else
+      for i = 1, 8 do
+        table.insert(self.sprites, PlayerDeath(x-3, y-3, "flash", i, self))
+      end
+    end
+  end
+end
+
+function PlayState:handleRestartTimer()
+  self.restarting = false
   self.player.x = self.playerX
   self.player.y = self.playerY
 end
 
-function PlayState:runStopTimer(dt)
-  if not self.timerToStop then
-    local i, N, show = 1, #self.collections
-    while i <= N do
-      if self.player:touches( self.collections[i] ) then
-        self.collections[i]:collect()
-        table.remove(self.collections, i)
-        N = N - 1
-      else
-        i = i + 1
-      end
-    end
-    if N == 0 then
-      self.timerToStop = 1
-    end
-  else
-    self.timerToStop = self.timerToStop - dt
-    if self.timerToStop < 0 then
-      StateMachine:pop()
-      StateMachine:push( Game.newNextLevel( self.mapNum ) )
-    end
-  end
+function PlayState:handleStopTimer()
+  StateMachine:pop()
+  StateMachine:push( Game.newNextLevel( self.mapNum ) )
 end
 
 function PlayState:draw(dt)
@@ -504,13 +597,12 @@ function PlayState:draw(dt)
       end
     end
   end
-  for _, coin in ipairs(self.collections) do
-    coin:draw(dt)
+  for _, sprite in ipairs(self.sprites) do
+    sprite:draw(dt)
   end
-  for _, enemy in ipairs(self.enemies) do
-    enemy:draw(dt)
+  if not self.restarting then
+    self.player:draw(dt)
   end
-  self.player:draw(dt)
   self.deathDisplay:draw(dt)
   self.coinDisplay:draw(dt)
 end
@@ -521,6 +613,10 @@ end
 
 function PlayState:visibilityOffset()
   return self.offsetX, self.offsetY
+end
+
+function PlayState:removeSprite(spr)
+  table.insert(self.spritesToRemove, spr)
 end
 
 ----------------------------------------
@@ -586,6 +682,14 @@ Game.artwork = {
     coinTwo = { 8, 8, 8, 8 };
     coinThree = { 16, 8, 8, 8 };
     coinFour = { 24, 8, 8, 8 };
+    deathBoomOne = { 0, 228, 7, 7 };
+    deathBoomTwo = { 8, 228, 7, 7 };
+    deathBoomThree = { 16, 228, 7, 7 };
+    deathBoomFour = { 24, 228, 7, 7 };
+    deathFlashOne = { 0, 236, 7, 7 };
+    deathFlashTwo = { 8, 236, 7, 7 };
+    deathFlashThree = { 16, 236, 7, 7 };
+    deathFlashFour = { 24, 236, 7, 7 };
   }
 }
 
