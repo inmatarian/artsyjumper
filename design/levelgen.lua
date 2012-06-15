@@ -5,10 +5,16 @@ STYLE = select(1,...) or "shapes"
 TIMES = select(2,...) or 1
 LEVEL_WIDTH = tonumber(select(3,...) or ROOM_WIDTH)
 LEVEL_HEIGHT = tonumber(select(4,...) or ROOM_HEIGHT)
+OPTION = select(5,...)
+if OPTION then OPTION = tonumber(OPTION) end
 
-SEED = os.time()
+SEED = tonumber(select(6, ...) or os.time())
 math.randomseed( SEED )
 for i = 1, 10 do math.random() end
+
+print( "Width", LEVEL_WIDTH, "Height", LEVEL_HEIGHT )
+print( "Style", STYLE, "Times", TIMES )
+print( "Option", OPTION, "Seed", SEED )
 
 ----------------------------------------
 
@@ -108,10 +114,11 @@ end
 ----------------------------------------
 
 run = {
-  shapes = function()
+  shapes = function( count )
+    count = count or math.random(100)+25
     Level:init( LEVEL_WIDTH, LEVEL_HEIGHT )
     local x, y = math.random(LEVEL_WIDTH), math.random(LEVEL_HEIGHT)
-    for i = 1, math.random(100)+25 do
+    for i = 1, count do
       x, y = Level:carveOutShape( x, y, math.random(#Level.carveShapes))
       if (math.random(10)==1) or (x<0) or (y<0) or
          (x>=Level.width) or (y>=Level.height) then
@@ -122,7 +129,8 @@ run = {
     Level:dump()
   end,
 
-  automata = function()
+  automata = function( count )
+    count = count or math.random(2,4)
     local w, h = LEVEL_WIDTH, LEVEL_HEIGHT
     Level:init(w, h)
 
@@ -132,7 +140,7 @@ run = {
       end
     end
 
-    for i = 1, math.random(2,4) do
+    for i = 1, count do
       local lastMap = Level.data:deepcopy()
       for y = 1, h-2 do
         for x = 1, w-2 do
@@ -152,5 +160,8 @@ run = {
   end
 }
 
-for i = 1, TIMES do run[STYLE]() end
+for i = 1, TIMES do
+  print( "---" )
+  run[STYLE](OPTION)
+end
 

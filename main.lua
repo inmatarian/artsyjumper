@@ -45,17 +45,18 @@ TextBlock = Object:clone()
 
 function TextBlock:init( x, y, color, str, ... )
   self.block = {}
-  str = str:format(...)
-  if y == "center" then
-    local lines = 0
-    for _ in str:gmatch("[^\r\n]+") do lines = lines + 1 end
-    y = floor((Graphics.gameHeight-(Graphics.fontHeight+2)*lines)/2)
-  end
+  str = Util.reflow(str:format(...), 19)
+  local lines, ly = 0, 0
   for line in str:gmatch("[^\r\n]+") do
     local lx = (x == "center") and floor((Graphics.gameWidth/2)-(line:len()*4)) or x
-    table.insert( self.block, { x=lx, y=y, c=color, t=line } )
-    y = y + Graphics.fontHeight + 2
+    table.insert( self.block, { x=lx, y=ly, c=color, t=line } )
+    ly = ly + Graphics.fontHeight + 2
+    lines = lines + 1
   end
+  if y == "center" then
+    y = floor((Graphics.gameHeight-(Graphics.fontHeight+2)*lines)/2)
+  end
+  for _, v in ipairs(self.block) do v.y = v.y + y end
 end
 
 function TextBlock:draw(dt)
@@ -156,6 +157,7 @@ function Sprite:setAnim( anm )
     self.anim = anm
     self.animCurrent = 1
     self.animClock = self.anim.time[self.animCurrent]
+    self.frame = self.anim.frame[1]
   end
 end
 
@@ -171,7 +173,7 @@ function Sprite:update(dt) end
 Mobile = Sprite:clone {
   jump = 0, jumpHeight = 152,
   gravity = 640, speed = 96, terminalVelocity = 256,
-  tangible = true, hurts = true
+  tangible = true, hurts = false
 }
 
 function Mobile:init( x, y, parent )
@@ -229,6 +231,9 @@ function Mobile:applyPhysics(dt)
   if self.tangible then
     self.dx = self.dx * ((self.onFloor) and 0.25 or 0.5) * dt/60
     self.dy = self.dy + self.gravity*dt
+  else
+    self.dx = self.dx * 0.5 * dt/60
+    self.dy = self.dy * 0.5 * dt/60
   end
 end
 
@@ -252,54 +257,85 @@ end
 
 ----------------------------------------
 
-Enemy = Mobile:clone {
-  walk = 0
+MobileActor = Mobile:clone {
+  walk = 0, fly = 0
 }
 
-function Enemy:init(...)
+function MobileActor:init(...)
   self.thread = coroutine.wrap( self.run )
   self.anim = self.stillAnim or self.anim
-  Enemy:superinit(self, ...)
+  MobileActor:superinit(self, ...)
 end
 
-function Enemy:update(dt)
+function MobileActor:update(dt)
   self.thread(self, dt)
   if self.walk ~= 0 then
     self.dx = self.walk
   end
-  Enemy:super().update(self, dt)
+  if self.fly ~= 0 then
+    self.dy = self.fly
+  end
+  MobileActor:super().update(self, dt)
 end
 
-function Enemy:wait( seconds )
+function MobileActor:wait( seconds )
   repeat
     local _, dt = coroutine.yield(true)
     seconds = seconds - dt
   until seconds <= 0
 end
 
-function Enemy:doWalk( dir, seconds )
+function MobileActor:doWalk( dir, dir2, seconds )
+  if (not seconds) then
+   if type(dir2)=="number" then
+      seconds, dir2 = dir2, nil
+    else
+      seconds = 0.5
+    end
+  end
+
   if dir ~= "I" then
-    self:setAnim( self.movingAnim )
-    if dir == "W" then
+    local animToSet = self.movingAnim or self.stillAnim
+    if animToSet then self:setAnim( animToSet ) end
+    local hdir, vdir = dir, dir2 or dir
+    if hdir == "T" then
+      local pl = self.parent.player
+      local dx, dy = pl.x - self.x, pl.y - self.y
+      local ax, ay = abs(dx), abs(dy)
+      hdir = (((dx < 0) and "W") or (dx > 0 and "E")) or "I"
+      vdir = (((dy < 0) and "N") or (dy > 0 and "S")) or "I"
+      if ax > (ay * 2) then vdir = "I"
+      elseif ay > (ax * 2) then hdir = "I" end
+    end
+    if hdir == "W" then
       self.walk = -self.speed
       self.flipped = true
-    elseif dir == "E" then
+    elseif hdir == "E" then
       self.walk = self.speed
       self.flipped = false
     end
+    if vdir == "N" then
+      self.fly = -self.speed
+    elseif vdir == "S" then
+      self.fly = self.speed
+    end
   end
   self:wait( seconds )
-  self.walk = 0
-  self:setAnim( self.stillAnim )
+  self.walk, self.fly = 0, 0
+  if self.stillAnim then self:setAnim( self.stillAnim ) end
 end
 
-function Enemy:run()
+function MobileActor:run()
   while true do
-    self:wait(2.5)
-    self:doJump()
-    self:doWalk( Util.randomPick( "I", "W", "E" ), 0.5 )
+    self:wait(1)
   end
 end
+
+----------------------------------------
+
+Enemy = MobileActor:clone {
+  hurts = true
+}
 
 function Enemy:handleTouched()
   self.parent:restartLevel()
@@ -310,6 +346,28 @@ end
 BobEnemy = Enemy:clone {
   stillAnim = { frame = { "bobOne" }, time = { 0 } },
   movingAnim = { frame = { "bobOne", "bobTwo" }, time = { 0.1, 0.1 } },
+}
+
+function BobEnemy:run()
+  while true do
+    self:wait(2.5)
+    self:doJump()
+    self:doWalk( Util.randomPick( "I", "W", "E" ), 0.5 )
+  end
+end
+
+----------------------------------------
+
+LolEnemy = Enemy:clone {
+  gravity = 0, tangible = false,
+  width = 20, height = 7,
+  stillAnim = { frame = { "lol" }, time = { 0 } },
+}
+
+RoflEnemy = Enemy:clone {
+  gravity = 0, tangible = false,
+  width = 27, height = 7,
+  stillAnim = { frame = { "rofl" }, time = { 0 } },
 }
 
 ----------------------------------------
@@ -334,12 +392,71 @@ end
 
 ----------------------------------------
 
+EyeEnemy = Enemy:clone {
+  width = 8, height = 12,
+  stillAnim = { frame = { "eye" }, time = { 0 } },
+  speed = math.floor(Enemy.speed / 3),
+  gravity = 0, tangible = false
+}
+
+function EyeEnemy:run()
+  local pl = self.parent.player
+  while true do
+    local dir = (pl.x < self.x) and "W" or "E"
+    if math.random(1, 9)==1 then dir = Util.randomPick( "W", "E" ) end
+    for i = 1, 4 do
+      self:doWalk( dir, 0.35 )
+      self:doWalk( dir, "N", 0.35 )
+      self:doWalk( dir, 0.35 )
+      self:doWalk( dir, "S", 0.35 )
+    end
+  end
+end
+
+----------------------------------------
+
+DragonEnemy = Enemy:clone {
+  gravity = 0, tangible = false,
+  width = 10, height = 20,
+  speed = math.floor(Enemy.speed / 2),
+  stillAnim = { frame = { "dragon" }, time = { 0 } },
+}
+
+function DragonEnemy:run()
+  local dir
+  while true do
+    self:wait(1)
+    if math.random(1, 9)~=1 then
+      dir = "T"
+    else
+      dir = Util.randomPick("N", "S", "W", "E")
+    end
+    self:doWalk( dir, 2 )
+  end
+end
+
+----------------------------------------
+
 Player = Mobile:clone {
   width = 6, height = 12,
-  stillAnim = { frame = { "playerOne" }, time = { 0 } },
-  movingAnim = { frame = { "playerOne", "playerTwo" }, time = { 0.1, 0.1 } },
   holdingMove = false
 }
+
+function Player:init( x, y, level, parent )
+  local p1, p2
+  if level == 14 then
+    p1, p2 = "playerSeven", "playerEight"
+  elseif (level >= 10) and (level < 14) then
+    p1, p2 = "playerFive", "playerSix"
+  elseif (level >= 7 ) and (level < 10) then
+    p1, p2 = "playerThree", "playerFour"
+  else
+    p1, p2 = "playerOne", "playerTwo"
+  end
+  self.stillAnim = { frame = { p1 }, time = { 0 } }
+  self.movingAnim = { frame = { p1, p2 }, time = { 0.1, 0.1 } }
+  Player:superinit( self, x, y, parent )
+end
 
 function Player:update(dt)
   if Input.hold.jump then self:doJump() end
@@ -369,35 +486,46 @@ end
 
 ----------------------------------------
 
-PlayerDeath = Mobile:clone {
-  tangible = false, hurts = false, speed = 64, style = {}
+PlayerDeath = MobileActor:clone {
+  tangible = false, hurts = false, speed = 80
 }
 
-PlayerDeath.style.boom = {
-  frame = { "deathBoomOne", "deathBoomTwo", "deathBoomThree", "deathBoomFour", 0 },
-  time = { 0.1, 0.1, 0.1, 0.1, 1000 }
+PlayerDeath.animStyle = {
+  boom = {
+    frame = { "deathBoomOne", "deathBoomTwo", "deathBoomThree", "deathBoomFour", 0 },
+    time = { 0.1, 0.1, 0.1, 0.1, 1000 }
+  },
+  flash = {
+    frame = { "deathFlashOne", "deathFlashTwo", "deathFlashThree", "deathFlashFour" },
+    time = { 0.25, 0.25, 0.25, 0.25 }
+  }
 }
 
-PlayerDeath.style.flash = {
-  frame = { "deathFlashOne", "deathFlashTwo", "deathFlashThree", "deathFlashFour" },
-  time = { 0.25, 0.25, 0.25, 0.25 }
+PlayerDeath.moveDir = {
+  {"N"}, {"E","N"}, {"E"}, {"E","S"}, {"S"}, {"W","S"}, {"W"}, {"W","N"}
 }
 
-function PlayerDeath:init( x, y, style, option, parent )
-  self:setAnim(self.style[style])
-  self.lifeClock = 2
-  PlayerDeath:superinit(self, x, y, parent)
-
-  if option > 0 then
-    self.dx = self.speed * math.sin( option * math.pi / 4 )
-    self.dy = self.speed * math.cos( option * math.pi / 4 )
+function PlayerDeath:init( x, y, option, parent )
+  local style = (option == 0) and self.animStyle.boom or self.animStyle.flash
+  self:setAnim(style)
+  self.option = option
+  if option >= 1 and option <= #self.moveDir then
+    if #self.moveDir[option]==2 then
+      self.speed = self.speed * 0.707106781
+    end
   end
+  PlayerDeath:superinit(self, x, y, parent)
 end
 
-function PlayerDeath:update(dt)
-  PlayerDeath:super().update(self, dt)
-  self.lifeClock = self.lifeClock - dt
-  if self.lifeClock <= 0 then self:die() end
+function PlayerDeath:run()
+  if self.option >= 1 then
+    local d = self.moveDir[self.option]
+    self:doWalk( d[1], d[2], 2 )
+  else
+    self:wait(0.5)
+  end
+  self:die()
+  self:wait(1)
 end
 
 ----------------------------------------
@@ -443,14 +571,28 @@ function PlayState:placeObject( ch, x, y )
   if (ch == '#') or (ch == ' ') or (ch == '\n') then return ch end
   if ch == '@' then
     self.playerX, self.playerY = x, y
-    self.player = Player(self.playerX, self.playerY, self)
-  elseif ch == '$' then
-    table.insert(self.sprites, Collectable(x, y, self))
+    self.player = Player(self.playerX, self.playerY, self.mapNum, self)
+    return ' '
+  end
+  local spriteToAdd
+  if ch == '$' then
     self.coins = self.coins + 1
-  elseif ch == 'E' then
-    table.insert(self.sprites, BobEnemy(x, y, self))
+    spriteToAdd = Collectable(x, y, self)
+  elseif ch == 'B' then
+    spriteToAdd = BobEnemy(x, y, self)
+  elseif ch == 'R' then
+    spriteToAdd = RoflEnemy(x, y, self)
+  elseif ch == 'L' then
+    spriteToAdd = LolEnemy(x, y, self)
   elseif ch == 'V' then
-    table.insert(self.sprites, VVVVVVEnemy(x, y, self))
+    spriteToAdd = VVVVVVEnemy(x, y, self)
+  elseif ch == 'E' then
+    spriteToAdd = EyeEnemy(x, y, self)
+  elseif ch == 'D' then
+    spriteToAdd = DragonEnemy(x, y, self)
+  end
+  if spriteToAdd then
+    table.insert(self.sprites, spriteToAdd)
   end
   return ' '
 end
@@ -461,6 +603,10 @@ function PlayState:parseMap( map )
   self.sprites = {}
   self.coins = 0
 
+  local levelTile = 1
+  if self.mapNum > 10 and self.mapNum < 14 then levelTile = 2
+  elseif self.mapNum == 14 then levelTile = 3 end
+
   local x, y = 1, 1
   for ch in map:gmatch(".") do
     ch = self:placeObject( ch, (x-1)*8, (y-1)*8 )
@@ -468,7 +614,7 @@ function PlayState:parseMap( map )
       if x > 1 then x, y = 1, y + 1 end
     else
       local row = self.map[y] or {}
-      row[x] = (ch==' ') and 0 or 1
+      row[x] = ((ch==' ') and 0) or levelTile
       self.map[y] = row
       x = x + 1
     end
@@ -564,10 +710,10 @@ function PlayState:restartLevel()
     self.restarting = true
     local x, y = self.player:center()
     if math.random(0,1)==0 then
-      table.insert(self.sprites, PlayerDeath(x-3, y-3, "boom", 0, self))
+      table.insert(self.sprites, PlayerDeath(x-3, y-3, 0, self))
     else
       for i = 1, 8 do
-        table.insert(self.sprites, PlayerDeath(x-3, y-3, "flash", i, self))
+        table.insert(self.sprites, PlayerDeath(x-3, y-3, i, self))
       end
     end
   end
@@ -586,14 +732,14 @@ end
 
 function PlayState:draw(dt)
   Graphics:setColor( Color.PUREWHITE )
-  Graphics:drawBackdrop()
+  Graphics:drawBackdrop( 1+((self.mapNum-1)%#Graphics.backDrops) )
   local ox, oy = self:visibilityOffset()
   ox, oy = floor(ox/8), floor(oy/8)
   for y = 0, 14 do
     for x = 0, 19 do
-      local t = self:getTile(x+ox, y+oy)
-      if t==1 then
-        Graphics:drawTile(x*8, y*8, 1, Color.PUREWHITE)
+      local tile = self:getTile(x+ox, y+oy)
+      if tile > 0 then
+        Graphics:drawTile(x*8, y*8, tile, Color.PUREWHITE)
       end
     end
   end
@@ -623,15 +769,26 @@ end
 
 TextState = State:clone()
 
-function TextState:init( text, nextState )
-  self.text = TextBlock( "center", "center", Color.WHITE, text )
+function TextState:init( str, nextState )
+  self.str = str
+  self.text = TextBlock( "center", "center", Color.WHITE, str )
   self.nextState = nextState
 end
 
 function TextState:update(dt)
-  if Input.tap.enter or Input.tap.escape then
+  if Input.tap.enter or Input.tap.escape or Input.tap.n then
     StateMachine:pop()
     StateMachine:push( self.nextState )
+  elseif Input.tap.c then -- cheat mode, get different text
+    local nextText = GameTexts.levels[1]
+    for i = 2, #GameTexts.levels do
+      if self.str == GameTexts.levels[i-1] then
+        nextText = GameTexts.levels[i]
+        break
+      end
+    end
+    self.str = nextText
+    self.text = TextBlock( "center", "center", Color.WHITE, nextText )
   end
 end
 
@@ -642,18 +799,13 @@ end
 ----------------------------------------
 
 Game = {
-  deaths = 0
+  deaths = 0, coins = 0
 }
 
 function Game.newNextLevel( index )
-  local followingState
-  index = index + 1
-  if index < #GameTexts.levels then
-    followingState = PlayState(index)
-  else
-    followingState = Game.newGameOverState()
-  end
-  return TextState( GameTexts.levels[index], followingState )
+  local gameText = (index==0) and GameTexts.instructionScreen or GameTexts.levels[index]
+  local followingState = (index<#LevelMap) and PlayState(index+1) or Game.newGameOverState()
+  return TextState( gameText, followingState )
 end
 
 function Game.newTitleState()
@@ -671,12 +823,23 @@ Game.artwork = {
   name = "tileset.png",
   tiles = {
     [1] = { 8, 0, 8, 8 };
+    [2] = { 16, 0, 8, 8 };
+    [3] = { 24, 0, 8, 8 };
     playerOne = { 0, 244, 7, 12 };
     playerTwo = { 8, 244, 7, 12 };
+    playerThree = { 16, 244, 7, 12 };
+    playerFour = { 24, 244, 7, 12 };
+    playerFive = { 32, 244, 7, 12 };
+    playerSix = { 40, 244, 7, 12 };
+    playerSeven = { 48, 244, 7, 12 };
+    playerEight = { 56, 244, 7, 12 };
     bobOne = { 222, 247, 5, 4 };
     bobTwo = { 222, 252, 5, 4 };
     vvvvvvOne = { 228, 243, 8, 13 };
     vvvvvvTwo = { 237, 243, 8, 13 };
+    lol = { 194, 241, 20, 7 };
+    rofl = { 194, 249, 27, 7 };
+    eye = { 237, 230, 8, 12 };
     dragon = { 246, 236, 10, 20 };
     coinOne = { 0, 8, 8, 8 };
     coinTwo = { 8, 8, 8, 8 };

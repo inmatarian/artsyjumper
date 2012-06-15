@@ -125,3 +125,28 @@ function Util.randomPick(...)
   return select(math.random(1, select('#', ...)), ...)
 end
 
+function Util.wordWrap( str, limit )
+  limit = limit or 40
+  local here = 1
+  return str:gsub("(%s+)()(%S+)()",
+    function(sp, st, word, fi)
+      if fi-here > limit then
+        here = st
+        return '\n' .. word
+      end
+    end)
+end
+
+function Util.reflow( str, limit )
+  local t, i, nl, sp = {}, 0, 0, 0
+  limit = limit or 20
+  for c in str:gmatch(".") do
+    i = i + 1
+    t[i] = c
+    if (c == " ") then sp = i
+    elseif (c == "\n") then sp, nl = i, i end
+    if (i-nl) > limit then t[sp], nl = "\n", sp end
+  end
+  return table.concat(t)
+end
+

@@ -20,7 +20,9 @@ function Graphics:init( artwork )
   self:loadTileset(artwork.name, artwork.tiles)
 
   self.backDrops = {
-    default = self.loadBackDrop("backdrop.png")
+    self.loadBackDrop("backdrop.png"),
+    self.loadBackDrop("backdrop2.png"),
+    self.loadBackDrop("backdrop3.png")
   }
 
   return self
@@ -42,21 +44,6 @@ function Graphics:saveScreenshot()
   local shot = love.graphics.newScreenshot()
   shot:encode(name, "png")
   return self
-end
-
-function Graphics.loadImageQuads(name, width, height, firstid)
-  local quads = {}
-  local image = love.graphics.newImage(name)
-  image:setFilter("nearest", "nearest")
-  local sw, sh = image:getWidth(), image:getHeight()
-  local i = firstid
-  for y = 0, sh-1, width do
-    for x = 0, sw-1, height do
-      quads[i] = love.graphics.newQuad(x, y, width, height, sw, sh)
-      i = i + 1
-    end
-  end
-  return image, quads
 end
 
 function Graphics:loadTileset(name, tiles)
@@ -92,8 +79,8 @@ function Graphics:setClipping( x, y, w, h )
   return self
 end
 
-function Graphics:drawBackdrop( name )
-  local backdrop = self.backDrops[name] or self.backDrops.default
+function Graphics:drawBackdrop( index )
+  local backdrop = self.backDrops[index] or self.backDrops[1]
   love.graphics.draw( backdrop, 0, 0 )
   return self
 end
