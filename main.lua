@@ -129,8 +129,15 @@ function Sprite:init( x, y, parent )
 end
 
 function Sprite:touches( other )
-  return Util.rectOverlaps( self.x, self.y, self.width, self.height,
-      other.x, other.y, other.width, other.height )
+  local x1 = self.x + 1
+  local y1 = self.y + 1
+  local w1 = self.width - 2
+  local h1 = self.height - 2
+  local x2 = other.x + 1
+  local y2 = other.y + 1
+  local w2 = other.width - 2
+  local h2 = other.height - 2
+  return Util.rectOverlaps( x1, y1, w1, h1, x2, y2, w2, h2 )
 end
 
 function Sprite:updateAnimations(dt)
