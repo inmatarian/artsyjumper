@@ -5,8 +5,7 @@ Graphics = {
   xScale = 1,
   yScale = 1,
   maxScale = 6,
-  fontset = [==[ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuv
-wxyz{|}~]==],
+  fontset = [==[ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~]==],
 }
 
 function Graphics:init( artwork )

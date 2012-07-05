@@ -7,8 +7,10 @@ LEVEL_WIDTH = tonumber(select(3,...) or ROOM_WIDTH)
 LEVEL_HEIGHT = tonumber(select(4,...) or ROOM_HEIGHT)
 OPTION = select(5,...)
 if OPTION then OPTION = tonumber(OPTION) end
+OPTION2 = select(6,...)
+if OPTION2 then OPTION2 = tonumber(OPTION2) end
 
-SEED = tonumber(select(6, ...) or os.time())
+SEED = tonumber(select(7, ...) or os.time())
 math.randomseed( SEED )
 for i = 1, 10 do math.random() end
 
@@ -45,7 +47,7 @@ function Datum:deepcopy()
   local other = setmetatable({}, Datum)
   for y, row in ipairs(self) do
     for x, v in ipairs(row) do
-      other:set(x, y, v)
+      other:set(x-1, y-1, v)
     end
   end
   return other
@@ -113,17 +115,39 @@ end
 
 ----------------------------------------
 
+function shapesStep(level, x, y, w, h)
+  x, y = level:carveOutShape( x, y, math.random(#level.carveShapes))
+  if (math.random(10)==1) or (x<0) or (y<0) or
+     (x>=level.width) or (y>=level.height) then
+    x, y = math.random(0, w-1), math.random(0, h-1)
+  end
+  return x, y
+end
+
+function automataStep(level, w, h)
+  local lastMap = level.data:deepcopy()
+  for y = 0, h-1 do
+    for x = 0, w-1 do
+      local neighbors = 0
+      for ny = y-1, y+1 do
+        for nx = x-1, x+1 do
+          neighbors = neighbors + lastMap:get(nx, ny)
+        end
+      end
+      level.data:set(x, y, ((neighbors<5) and 0 or 1))
+    end
+  end
+end
+
+----------------------------------------
+
 run = {
   shapes = function( count )
     count = count or math.random(100)+25
     Level:init( LEVEL_WIDTH, LEVEL_HEIGHT )
     local x, y = math.random(LEVEL_WIDTH), math.random(LEVEL_HEIGHT)
     for i = 1, count do
-      x, y = Level:carveOutShape( x, y, math.random(#Level.carveShapes))
-      if (math.random(10)==1) or (x<0) or (y<0) or
-         (x>=Level.width) or (y>=Level.height) then
-        x, y = math.random(LEVEL_WIDTH), math.random(LEVEL_HEIGHT)
-      end
+      x, y = shapesStep(Level, x, y, LEVEL_WIDTH, LEVEL_HEIGHT)
     end
     Level:finalize()
     Level:dump()
@@ -140,20 +164,22 @@ run = {
       end
     end
 
-    for i = 1, count do
-      local lastMap = Level.data:deepcopy()
-      for y = 1, h-2 do
-        for x = 1, w-2 do
-          local neighbors = 0
-          for ny = y-1, y+1 do
-            for nx = x-1, x+1 do
-              neighbors = neighbors + ((lastMap:get(nx, ny)==0) and 0 or 1)
-            end
-          end
-          Level.data:set(x, y, ((neighbors<5) and 0 or 1))
-        end
-      end
+    for i = 1, count do automataStep(Level, w, h) end
+    Level:finalize()
+    Level:dump()
+  end,
+
+  dual = function( shapes, iterations )
+    shapes = shapes or math.random(100)+25
+    iterations = iterations or math.random(2,4)
+    local w, h = LEVEL_WIDTH, LEVEL_HEIGHT
+    Level:init(w, h)
+
+    local x, y = math.random(LEVEL_WIDTH), math.random(LEVEL_HEIGHT)
+    for i = 1, shapes do
+      x, y = shapesStep(Level, x, y, LEVEL_WIDTH, LEVEL_HEIGHT)
     end
+    for i = 1, iterations do automataStep(Level, w, h) end
 
     Level:finalize()
     Level:dump()
@@ -162,6 +188,6 @@ run = {
 
 for i = 1, TIMES do
   print( "---" )
-  run[STYLE](OPTION)
+  run[STYLE](OPTION, OPTION2)
 end
 

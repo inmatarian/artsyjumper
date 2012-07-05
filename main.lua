@@ -68,17 +68,19 @@ end
 
 ----------------------------------------
 
-MeterDisplay = Object:clone()
+MeterDisplay = Object:clone {
+  text = ""
+}
 
-function MeterDisplay:init( x, y, color )
+function MeterDisplay:init( x, y, color, text, ... )
   self.x, self.y = x, y
   self.color = color or Color.WHITE
-  self.text = ""
+  if text then self.text = Util.reflow(text:format(...), 19) end
   self.clock = 0
 end
 
-function MeterDisplay:refresh( text )
-  self.text = text
+function MeterDisplay:refresh( text, ... )
+  if text then self.text = Util.reflow(text:format(...), 19) end
   self.clock = 3
 end
 
@@ -520,12 +522,21 @@ end
 function PlayerDeath:run()
   if self.option >= 1 then
     local d = self.moveDir[self.option]
-    self:doWalk( d[1], d[2], 2 )
+    self:doWalk( d[1], d[2], 0.5 )
+    self.hurts = true
+    self:doWalk( d[1], d[2], 1.5 )
   else
     self:wait(0.5)
   end
   self:die()
   self:wait(1)
+end
+
+function PlayerDeath:handleTouched()
+  if self.hurts then
+    self.parent:restartLevel()
+    self.parent.doubleKilledDisplay:refresh()
+  end
 end
 
 ----------------------------------------
@@ -544,7 +555,7 @@ end
 function Collectable:handleTouched()
   Game.coins = Game.coins + 1
   self.parent.coins = self.parent.coins - 1
-  self.parent.coinDisplay:refresh(string.format("%i", Game.coins))
+  self.parent.coinDisplay:refresh("%i", Game.coins)
   self:die()
 end
 
@@ -558,6 +569,7 @@ function PlayState:init( mapNum )
   self.mapNum = mapNum
   self.deathDisplay = MeterDisplay( 4, 4, Color.RED )
   self.coinDisplay = MeterDisplay( 4, 12, Color.GREEN )
+  self.doubleKilledDisplay = MeterDisplay( "center", "center", Color.BLUE, "wtf is wrong\nwith you?" )
   self.timers = {}
   self.spritesToRemove = {}
 end
@@ -577,22 +589,24 @@ function PlayState:placeObject( ch, x, y )
   local spriteToAdd
   if ch == '$' then
     self.coins = self.coins + 1
-    spriteToAdd = Collectable(x, y, self)
+    spriteToAdd = Collectable
   elseif ch == 'B' then
-    spriteToAdd = BobEnemy(x, y, self)
+    spriteToAdd = BobEnemy
   elseif ch == 'R' then
-    spriteToAdd = RoflEnemy(x, y, self)
+    spriteToAdd = RoflEnemy
   elseif ch == 'L' then
-    spriteToAdd = LolEnemy(x, y, self)
+    spriteToAdd = LolEnemy
   elseif ch == 'V' then
-    spriteToAdd = VVVVVVEnemy(x, y, self)
+    spriteToAdd = VVVVVVEnemy
   elseif ch == 'E' then
-    spriteToAdd = EyeEnemy(x, y, self)
+    spriteToAdd = EyeEnemy
   elseif ch == 'D' then
-    spriteToAdd = DragonEnemy(x, y, self)
+    spriteToAdd = DragonEnemy
   end
   if spriteToAdd then
-    table.insert(self.sprites, spriteToAdd)
+    x = floor((x+4) - spriteToAdd.width/2)
+    y = floor((y+4) - spriteToAdd.height/2)
+    table.insert(self.sprites, spriteToAdd(x, y, self))
   end
   return ' '
 end
@@ -705,7 +719,7 @@ end
 function PlayState:restartLevel()
   if not self.restarting then
     Game.deaths = Game.deaths + 1
-    self.deathDisplay:refresh( string.format("%i", Game.deaths) )
+    self.deathDisplay:refresh("%i", Game.deaths)
     table.insert(self.timers, CallbackTimer( 0.5, self, self.handleRestartTimer ) )
     self.restarting = true
     local x, y = self.player:center()
@@ -751,6 +765,7 @@ function PlayState:draw(dt)
   end
   self.deathDisplay:draw(dt)
   self.coinDisplay:draw(dt)
+  self.doubleKilledDisplay:draw(dt)
 end
 
 function PlayState:isVisible( sprite )
