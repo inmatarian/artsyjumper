@@ -9,6 +9,7 @@ require 'object'
 require 'util'
 require 'graphics'
 require 'input'
+require 'sound'
 require 'statemachine'
 require 'gametexts'
 require 'levelmaps'
@@ -255,7 +256,9 @@ function Mobile:doJump()
   if self.onFloor then
     self.dy = -self.jumpHeight
     self.onFloor = false
+    return true
   end
+  return false
 end
 
 function Mobile:flipGravity()
@@ -468,7 +471,11 @@ function Player:init( x, y, level, parent )
 end
 
 function Player:update(dt)
-  if Input.hold.jump then self:doJump() end
+  if Input.hold.jump then
+    if self:doJump() then
+      self.parent:sfxJump()
+    end
+  end
   if self.dy < 0 and not Input.hold.jump then self.dy = self.dy * 0.25 end
 
   if Input.tap.left or Input.tap.right then
@@ -560,9 +567,7 @@ function Collectable:init( x, y, parent )
 end
 
 function Collectable:handleTouched()
-  Game.coins = Game.coins + 1
-  self.parent.coins = self.parent.coins - 1
-  self.parent.coinDisplay:refresh("%i", Game.coins)
+  self.parent:collectedCoin()
   self:die()
 end
 
@@ -710,11 +715,6 @@ function PlayState:runFrame(dt)
     end
   end
 
-  if self.coins == 0 and not self.stopping then
-    self.stopping = true
-    table.insert(self.timers, CallbackTimer( 1, self, self.handleStopTimer ) )
-  end
-
   self.collisionCountDt = (self.collisionCountDt or 0) + dt
   if self.collisionCountDt > 1 then
     debugMode.coll = self.collisionCount
@@ -725,6 +725,7 @@ end
 
 function PlayState:restartLevel()
   if not self.restarting then
+    self:sfxDeath()
     Game.deaths = Game.deaths + 1
     self.deathDisplay:refresh("%i", Game.deaths)
     table.insert(self.timers, CallbackTimer( 0.5, self, self.handleRestartTimer ) )
@@ -737,6 +738,17 @@ function PlayState:restartLevel()
         table.insert(self.sprites, PlayerDeath(x-3, y-3, i, self))
       end
     end
+  end
+end
+
+function PlayState:collectedCoin()
+  self:sfxCoin()
+  Game.coins = Game.coins + 1
+  self.coins = self.coins - 1
+  self.coinDisplay:refresh("%i", Game.coins)
+  if self.coins == 0 and not self.stopping then
+    self.stopping = true
+    table.insert(self.timers, CallbackTimer( 1, self, self.handleStopTimer ) )
   end
 end
 
@@ -785,6 +797,20 @@ end
 
 function PlayState:removeSprite(spr)
   table.insert(self.spritesToRemove, spr)
+end
+
+function PlayState:sfxJump()
+  local clip = Util.randomPick(Sound.JUMP1, Sound.JUMP2, Sound.JUMP3)
+  Sound:playClip(clip)
+end
+
+function PlayState:sfxDeath()
+  local clip = Util.randomPick(Sound.DEATH1, Sound.DEATH2)
+  Sound:playClip(clip)
+end
+
+function PlayState:sfxCoin()
+  Sound:playClip(Sound.COIN1)
 end
 
 ----------------------------------------
@@ -883,6 +909,7 @@ Game.artwork = {
 function love.load()
   Graphics:init( Game.artwork )
   Input:init()
+  Sound:init()
   StateMachine:push( Game.newTitleState() )
 end
 
